@@ -27,6 +27,7 @@ function shapeOk(b) {
 export default {
   async fetch(req, env) {
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
+    if (new URL(req.url).pathname === '/') return new Response('couple-ledger worker ok', { headers: CORS });
     if (!env.SECRET || req.headers.get('X-Key') !== env.SECRET) return json({ error: 'unauthorized' }, 401);
 
     const path = new URL(req.url).pathname;

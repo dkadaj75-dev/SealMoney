@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Couple Ledger</title>
+<style>
+:root{--bg:#fff7f0;--fg:#2a2020;--card:#fff;--ac:#d6455d;--mu:#8a7a7a;--ok:#2e9e6b;--bad:#d33;--bd:#eadfd6}
+@media(prefers-color-scheme:dark){:root{--bg:#1a1416;--fg:#f3e9e6;--card:#251c1f;--ac:#ff6b81;--mu:#a89898;--ok:#4cc48d;--bad:#ff6b6b;--bd:#3a2d31}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,sans-serif}
+.wrap{max-width:520px;margin:0 auto;padding:16px 16px 80px}
+h1{font-size:20px;margin:0 0 4px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin:12px 0}
+.row{display:flex;gap:8px;align-items:center}
+.row>*{flex:1}
+.bal{text-align:center}
+.bal b{display:block;font-size:34px;color:var(--ac)}
+.bal span{color:var(--mu);font-size:13px}
+button,input{font:inherit;border-radius:10px;border:1px solid var(--bd);padding:12px;background:var(--card);color:var(--fg);width:100%}
+button{background:var(--ac);color:#fff;border:0;font-weight:600;cursor:pointer}
+button.alt{background:transparent;color:var(--fg);border:1px solid var(--bd)}
+button.sm{padding:8px;width:auto}
+button:disabled{opacity:.4}
+.tabs{display:flex;gap:6px;margin:12px 0}
+.tabs button{background:transparent;color:var(--mu);border:1px solid var(--bd);padding:10px 4px}
+.tabs button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+.pill{display:flex;gap:6px;margin:8px 0}
+.pill button{background:transparent;color:var(--fg);border:1px solid var(--bd)}
+.pill button.on{background:var(--fg);color:var(--bg)}
+.mu{color:var(--mu);font-size:13px}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+.hash{font:11px ui-monospace,monospace;color:var(--mu);word-break:break-all}
+.item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--bd)}
+.item:last-child{border:0}
+label{display:block;font-size:13px;color:var(--mu);margin:8px 0 4px}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<script>
+/* ---------- SHA-256 (no deps, sync) ---------- */
+const K=[],H0=[];
+(function(){let p=0,n=2;while(p<64){let ok=true;for(let d=2;d*d<=n;d++)if(n%d===0){ok=false;break}
+if(ok){if(p<8)H0[p]=(Math.pow(n,.5)%1*4294967296)|0;K[p++]=(Math.pow(n,1/3)%1*4294967296)|0}n++}})();
+function sha256(str){
+  const b=new TextEncoder().encode(str),l=b.length,n=((l+9+63)>>6)<<6,m=new Uint8Array(n);
+  m.set(b);m[l]=128;
+  const dv=new DataView(m.buffer);
+  dv.setUint32(n-8,Math.floor(l*8/4294967296));dv.setUint32(n-4,(l*8)>>>0);
+  const h=H0.slice(),w=new Array(64),r=(x,k)=>(x>>>k)|(x<<(32-k));
+  for(let o=0;o<n;o+=64){
+    for(let i=0;i<16;i++)w[i]=dv.getUint32(o+i*4);
+    for(let i=16;i<64;i++){const a=w[i-15],c=w[i-2];
+      w[i]=(w[i-16]+(r(a,7)^r(a,18)^(a>>>3))+w[i-7]+(r(c,17)^r(c,19)^(c>>>10)))|0}
+    let [a,b2,c,d,e,f,g,hh]=h;
+    for(let i=0;i<64;i++){
+      const t1=(hh+(r(e,6)^r(e,11)^r(e,25))+((e&f)^(~e&g))+K[i]+w[i])|0;
+      const t2=((r(a,2)^r(a,13)^r(a,22))+((a&b2)^(a&c)^(b2&c)))|0;
+      hh=g;g=f;f=e;e=(d+t1)|0;d=c;c=b2;b2=a;a=(t1+t2)|0}
+    h[0]=(h[0]+a)|0;h[1]=(h[1]+b2)|0;h[2]=(h[2]+c)|0;h[3]=(h[3]+d)|0;
+    h[4]=(h[4]+e)|0;h[5]=(h[5]+f)|0;h[6]=(h[6]+g)|0;h[7]=(h[7]+hh)|0}
+  return h.map(x=>(x>>>0).toString(16).padStart(8,'0')).join('');
+}
+
+/* ---------- state ---------- */
+const KEY='couple-ledger-v1',CFG='couple-ledger-cfg';
+const DEF_MENU=[{n:'Massage',c:5},{n:'Restaurant invite',c:8},{n:'Beer together',c:3},{n:'Pick the movie',c:2}];
+let S={blocks:[],menu:DEF_MENU.slice(),me:0,menuDirty:false};
+let cfg={url:'',key:''};
+let tab='home',sm={t:'',bad:false},busy=false,retry=0;
+try{const x=JSON.parse(localStorage.getItem(KEY));if(x&&x.blocks)S=Object.assign(S,x)}catch(e){}
+try{const x=JSON.parse(localStorage.getItem(CFG));if(x)cfg=x}catch(e){}
+if(location.hash.includes('u=')){ /* invite link */
+  const p=new URLSearchParams(location.hash.slice(1));
+  cfg={url:(p.get('u')||'').replace(/\/$/,''),key:p.get('k')||''};
+  try{localStorage.setItem(CFG,JSON.stringify(cfg))}catch(e){}
+  history.replaceState(null,'',location.href.split('#')[0]);
+}
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const names=()=>S.blocks.length?S.blocks[0].note.split('|'):['A','B'];
+
+/* ---------- chain ---------- */
+const ZERO='0'.repeat(64);
+const hashOf=b=>sha256(JSON.stringify([b.i,b.t,b.type,b.by,b.amount,b.note,b.ref,b.prev]));
+function mk(type,by,amount,note,ref){
+  const prev=S.blocks.length?S.blocks[S.blocks.length-1].hash:ZERO;
+  const b={i:S.blocks.length,t:Date.now(),type,by,amount,note:note||'',ref:ref==null?null:ref,prev};
+  b.hash=hashOf(b);S.blocks.push(b);save();render();sync();
+}
+function verify(bl){
+  for(let i=0;i<bl.length;i++){
+    const b=bl[i],prev=i?bl[i-1].hash:ZERO;
+    if(b.i!==i||b.prev!==prev||b.hash!==hashOf(b))return i;
+  }
+  return -1;
+}
+function calc(){
+  const bal=[0,0],avail=[0,0],status={};
+  S.blocks.forEach(b=>{if(b.type==='approve')status[b.ref]='ok';if(b.type==='reject')status[b.ref]='no'});
+  const pending=[];
+  S.blocks.forEach(b=>{
+    if(b.type!=='earn'&&b.type!=='spend')return;
+    const st=status[b.i]||'wait',sign=b.type==='earn'?1:-1;
+    if(st==='ok'){bal[b.by]+=sign*b.amount;avail[b.by]+=sign*b.amount}
+    if(st==='wait'){pending.push(b);if(b.type==='spend')avail[b.by]-=b.amount}
+  });
+  return{bal,avail,pending,status};
+}
+
+/* ---------- online sync ---------- */
+const api=(path,body)=>fetch(cfg.url+path,{method:body?'POST':'GET',headers:{'X-Key':cfg.key,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+const setMsg=(t,bad)=>{sm={t,bad:!!bad}};
+function rebase(rb,tail,p){
+  const out=rb.slice();
+  tail.forEach(b=>{
+    const nb=Object.assign({},b,{i:out.length,prev:out[out.length-1].hash});
+    if(nb.ref!=null&&nb.ref>=p)nb.ref=nb.ref-p+rb.length;
+    nb.hash=hashOf(nb);out.push(nb);
+  });
+  return out;
+}
+async function sync(){
+  if(!cfg.url||!cfg.key||busy)return;
+  busy=true;
+  try{
+    const r=await api('/chain');
+    if(r.status===401){setMsg('✖ Wrong key',1);return}
+    if(!r.ok)throw new Error('http '+r.status);
+    const d=await r.json(),rb=d.blocks||[];
+    if(rb.length&&verify(rb)>=0){setMsg('✖ Online chain is BROKEN',1);return}
+    if(d.menu&&!S.menuDirty)S.menu=d.menu;
+    const lb=S.blocks;
+    let p=0;while(p<lb.length&&p<rb.length&&lb[p].hash===rb[p].hash)p++;
+    if(p===lb.length&&p===rb.length){/* equal */}
+    else if(p===lb.length){S.blocks=rb}                         /* remote ahead → adopt */
+    else if(p===rb.length){                                      /* local ahead → push */
+      const pr=await api('/blocks',{blocks:lb.slice(p)});
+      if(pr.status===409&&retry++<3){busy=false;return sync()}
+      if(!pr.ok)throw new Error('push '+pr.status);
+    }else if(p>=1){                                              /* both added → rebase mine on top */
+      S.blocks=rebase(rb,lb.slice(p),p);save();
+      const pr=await api('/blocks',{blocks:S.blocks.slice(rb.length)});
+      if(pr.status===409&&retry++<3){busy=false;return sync()}
+      if(!pr.ok)throw new Error('push '+pr.status);
+    }else{setMsg('⚠ Different ledger online. Use online version in Ledger tab.',1);S.diverged=d;save();return}
+    if(S.menuDirty){const mr=await api('/menu',{menu:S.menu});if(mr.ok)S.menuDirty=false}
+    retry=0;delete S.diverged;save();
+    setMsg('● Synced '+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}));
+  }catch(e){setMsg('○ Offline · retrying',1)}
+  finally{busy=false;render(true)}
+}
+function useOnline(){
+  const d=S.diverged;if(!d)return;
+  if(!confirm('Replace your local ledger with the online one?'))return;
+  S.blocks=d.blocks;if(d.menu)S.menu=d.menu;delete S.diverged;save();setMsg('');render();sync();
+}
+function saveCfg(){
+  cfg={url:document.getElementById('su').value.trim().replace(/\/$/,''),key:document.getElementById('sk').value.trim()};
+  try{localStorage.setItem(CFG,JSON.stringify(cfg))}catch(e){}
+  setMsg('Connecting…');render();sync();
+}
+function invite(){
+  const l=location.href.split('#')[0]+'#u='+encodeURIComponent(cfg.url)+'&k='+encodeURIComponent(cfg.key);
+  if(navigator.share){navigator.share({title:'Couple Ledger',url:l}).catch(()=>{});return}
+  if(navigator.clipboard)navigator.clipboard.writeText(l).then(()=>alert('Invite link copied. Send it privately.'),()=>prompt('Copy:',l));
+  else prompt('Copy:',l);
+}
+setInterval(()=>{if(document.visibilityState==='visible')sync()},15000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')sync()});
+
+/* ---------- actions ---------- */
+function setup(){
+  const a=document.getElementById('na').value.trim(),b=document.getElementById('nb').value.trim();
+  if(!a||!b)return alert('Both names needed');
+  mk('genesis',0,0,a+'|'+b,null);
+}
+function doEarn(){
+  const min=+document.getElementById('min').value,note=document.getElementById('en').value.trim();
+  const tk=Math.floor(min/15)/2;
+  if(!(tk>0))return alert('Min 15 minutes');
+  mk('earn',S.me,tk,min+' min'+(note?' · '+note:''));tab='home';render();
+}
+function doSpend(i){
+  const it=S.menu[i];
+  if(calc().avail[S.me]<it.c)return;
+  mk('spend',S.me,it.c,it.n);tab='home';render();
+}
+const approve=i=>mk('approve',S.me,0,'',i);
+const reject=i=>mk('reject',S.me,0,'',i);
+function addItem(){
+  const n=document.getElementById('in').value.trim(),c=+document.getElementById('ic').value;
+  if(!n||!(c>0))return;
+  S.menu.push({n,c});S.menuDirty=true;save();render();sync();
+}
+function delItem(i){S.menu.splice(i,1);S.menuDirty=true;save();render();sync()}
+function who(i){S.me=i;save();render()}
+function go(t){tab=t;render()}
+function exportJson(){
+  const data=JSON.stringify({blocks:S.blocks,menu:S.menu},null,1);
+  const file=new File([data],'couple-ledger.json',{type:'application/json'});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){navigator.share({files:[file]}).catch(()=>{});return}
+  const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download='couple-ledger.json';a.click();
+}
+function importJson(ev){
+  const f=ev.target.files[0];if(!f)return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      const d=JSON.parse(rd.result);
+      if(!Array.isArray(d.blocks)||!d.blocks.length)throw 0;
+      const bad=verify(d.blocks);
+      if(bad>=0)return alert('File chain BROKEN at block #'+bad+'. Not imported.');
+      const mine=S.blocks;
+      const same=mine.length&&mine.every((b,i)=>d.blocks[i]&&d.blocks[i].hash===b.hash);
+      if(mine.length&&!same&&!confirm('Chains differ. Replace yours with the file? Local entries lost.'))return;
+      if(same&&d.blocks.length<=mine.length)return alert('Already up to date.');
+      S.blocks=d.blocks;if(Array.isArray(d.menu))S.menu=d.menu;save();render();sync();
+    }catch(e){alert('Bad file.')}
+  };
+  rd.readAsText(f);ev.target.value='';
+}
+function wipe(){
+  if(confirm('Delete ledger on THIS device? Online copy stays and will come back on sync.')&&confirm('Really sure?')){
+    S.blocks=[];S.menu=DEF_MENU.slice();save();render();
+  }
+}
+
+/* ---------- views ---------- */
+const syncCard=()=>`<div class="card"><b>Online sync</b>
+  <label>Worker URL</label><input id="su" value="${esc(cfg.url)}" placeholder="https://couple-ledger.you.workers.dev" autocapitalize="off" autocorrect="off">
+  <label>Secret key</label><input id="sk" type="password" value="${esc(cfg.key)}" placeholder="shared secret" autocapitalize="off">
+  <br><br><div class="row"><button onclick="saveCfg()">Save &amp; sync</button>${cfg.url&&cfg.key?'<button class="alt" onclick="invite()">Invite link</button>':''}</div>
+  ${sm.t?`<div class="${sm.bad?'bad':'ok'}" style="margin-top:8px">${esc(sm.t)}</div>`:''}
+  ${S.diverged?'<br><button class="alt" onclick="useOnline()">Use online version</button>':''}</div>`;
+
+function render(auto){
+  const app=document.getElementById('app');
+  if(auto===true&&document.activeElement&&document.activeElement.tagName==='INPUT')return; /* background sync must not wipe typing */
+  if(!S.blocks.length){
+    app.innerHTML=`<h1>💞 Couple Ledger</h1>
+    <div class="mu">Speak your partner's language → earn tokens → spend them. Hash-chained.</div>
+    ${syncCard()}
+    <div class="card"><b>New ledger</b><p class="mu">Skip if your partner already made one and you connected above.</p>
+    <label>Person 1</label><input id="na" placeholder="Name">
+    <label>Person 2</label><input id="nb" placeholder="Name">
+    <br><button onclick="setup()">Create ledger</button></div>`;
+    return;
+  }
+  const N=names(),c=calc(),bad=verify(S.blocks),other=1-S.me;
+  let h=`<h1>💞 Couple Ledger</h1><div class="mu">${cfg.url?`<span class="${sm.bad?'bad':'ok'}">${esc(sm.t||'…')}</span>`:'offline mode'}</div>
+  <div class="card row">${[0,1].map(i=>`<div class="bal"><b>${c.bal[i]}</b><span>${esc(N[i])}${c.avail[i]!==c.bal[i]?' · '+c.avail[i]+' free':''}</span></div>`).join('')}</div>
+  <div class="mu">I am:</div>
+  <div class="pill">${[0,1].map(i=>`<button class="${S.me===i?'on':''}" onclick="who(${i})">${esc(N[i])}</button>`).join('')}</div>
+  <div class="tabs">${[['home','Home'],['earn','Earn'],['spend','Spend'],['log','Ledger']].map(t=>`<button class="${tab===t[0]?'on':''}" onclick="go('${t[0]}')">${t[1]}</button>`).join('')}</div>`;
+
+  if(tab==='home'){
+    const toMe=c.pending.filter(b=>b.by!==S.me),mine=c.pending.filter(b=>b.by===S.me);
+    h+=`<div class="card"><b>Waiting for my OK</b>`;
+    h+=toMe.length?toMe.map(b=>`<div class="item"><div>${b.type==='earn'?'🗣️':'🎟️'} ${esc(N[b.by])} ${b.type==='earn'?'earned':'spends'} <b>${b.amount}</b><div class="mu">${esc(b.note)}</div></div>
+      <div class="row"><button class="sm" onclick="approve(${b.i})">✔</button><button class="sm alt" onclick="reject(${b.i})">✖</button></div></div>`).join(''):'<div class="mu">Nothing.</div>';
+    h+=`</div><div class="card"><b>I wait for ${esc(N[other])}</b>`;
+    h+=mine.length?mine.map(b=>`<div class="item"><div>${b.type==='earn'?'🗣️ +':'🎟️ −'}${b.amount} <span class="mu">${esc(b.note)}</span></div></div>`).join(''):'<div class="mu">Nothing.</div>';
+    h+='</div>';
+  }
+  if(tab==='earn'){
+    h+=`<div class="card"><b>I spoke ${esc(N[other])}'s language</b>
+    <label>Minutes (30 min = 1 token)</label><input id="min" type="number" inputmode="numeric" value="30" min="15" step="15" oninput="document.getElementById('tk').textContent=Math.floor(this.value/15)/2">
+    <label>Note (optional)</label><input id="en" placeholder="Dinner chat, walk…">
+    <p>= <b id="tk">1</b> token(s). ${esc(N[other])} must approve.</p>
+    <button onclick="doEarn()">Claim tokens</button></div>`;
+  }
+  if(tab==='spend'){
+    h+=`<div class="card"><b>Spend (free: ${c.avail[S.me]})</b>`+S.menu.map((it,i)=>`<div class="item"><div>${esc(it.n)} <span class="mu">${it.c} tk</span></div>
+      <div class="row"><button class="sm" ${c.avail[S.me]<it.c?'disabled':''} onclick="doSpend(${i})">Use</button><button class="sm alt" onclick="delItem(${i})">🗑</button></div></div>`).join('')+`</div>
+    <div class="card"><b>New reward</b><label>Name</label><input id="in" placeholder="Breakfast in bed"><label>Cost</label><input id="ic" type="number" inputmode="numeric" value="3" min="1"><br><br><button class="alt" onclick="addItem()">Add</button></div>`;
+  }
+  if(tab==='log'){
+    h+=syncCard();
+    h+=`<div class="card"><b class="${bad<0?'ok':'bad'}">${bad<0?'✔ Chain valid · '+S.blocks.length+' blocks':'✖ Chain BROKEN at block #'+bad}</b>
+    <div class="row" style="margin-top:10px"><button class="alt" onclick="exportJson()">Export backup</button><label style="margin:0"><input type="file" accept=".json" onchange="importJson(event)"></label></div></div>`;
+    h+=S.blocks.slice().reverse().map(b=>{
+      const st=c.status[b.i];
+      const txt=b.type==='genesis'?'🌱 Genesis':b.type==='approve'?`✔ ${esc(N[b.by])} approved #${b.ref}`:b.type==='reject'?`✖ ${esc(N[b.by])} rejected #${b.ref}`:
+        `${b.type==='earn'?'🗣️ +':'🎟️ −'}${b.amount} ${esc(N[b.by])} · ${esc(b.note)} <span class="mu">(${st==='ok'?'approved':st==='no'?'rejected':'pending'})</span>`;
+      return `<div class="card"><div>#${b.i} ${txt}</div><div class="mu">${new Date(b.t).toLocaleString()}</div>
+      <div class="hash">hash ${b.hash.slice(0,16)}…<br>prev ${b.prev.slice(0,16)}…</div></div>`}).join('');
+    h+=`<button class="alt" onclick="wipe()">Reset local ledger</button>`;
+  }
+  app.innerHTML=h;
+}
+render();sync();
+</script>
+</body>
+</html>

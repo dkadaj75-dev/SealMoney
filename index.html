@@ -110,7 +110,8 @@ function calc(){
 }
 
 /* ---------- online sync ---------- */
-const api=(path,body)=>fetch(cfg.url+path,{method:body?'POST':'GET',headers:{'X-Key':cfg.key,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+const normUrl=u=>{u=(u||'').trim().replace(/\/+$/,'');return u&&!/^https?:\/\//i.test(u)?'https://'+u:u};
+const api=(path,body)=>fetch(normUrl(cfg.url)+path,{method:body?'POST':'GET',headers:{'X-Key':cfg.key,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
 const setMsg=(t,bad)=>{sm={t,bad:!!bad}};
 function rebase(rb,tail,p){
   const out=rb.slice();
@@ -157,7 +158,7 @@ function useOnline(){
   S.blocks=d.blocks;if(d.menu)S.menu=d.menu;delete S.diverged;save();setMsg('');render();sync();
 }
 function saveCfg(){
-  cfg={url:document.getElementById('su').value.trim().replace(/\/$/,''),key:document.getElementById('sk').value.trim()};
+  cfg={url:normUrl(document.getElementById('su').value),key:document.getElementById('sk').value.trim()};
   try{localStorage.setItem(CFG,JSON.stringify(cfg))}catch(e){}
   setMsg('Connecting…');render();sync();
 }
